@@ -205,6 +205,57 @@ fn collect_files(
     }
 }
 
+fn get_dist_dir() -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if cwd.join("app/dist").exists() {
+        cwd.join("app/dist")
+    } else if cwd.join("../app/dist").exists() {
+        cwd.join("../app/dist")
+    } else {
+        PathBuf::from("app/dist")
+    }
+}
+
+async fn serve_static(path: web::Path<String>) -> HttpResponse {
+    let dist_dir = get_dist_dir();
+    let req_path = path.into_inner();
+    
+    let mut file_path = dist_dir.clone();
+    if req_path.is_empty() || req_path == "/" {
+        file_path.push("index.html");
+    } else {
+        file_path.push(&req_path);
+    }
+    
+    // Fallback to index.html for SPA routing or if not found
+    if !file_path.exists() || file_path.is_dir() {
+        file_path = dist_dir.join("index.html");
+    }
+    
+    if !file_path.exists() {
+        return HttpResponse::NotFound().body("Static files not found in app/dist. Make sure to build the app (npm run build).");
+    }
+    
+    match fs::read(&file_path) {
+        Ok(content) => {
+            let mime_type = match file_path.extension().and_then(|s| s.to_str()) {
+                Some("html") => "text/html",
+                Some("css") => "text/css",
+                Some("js") => "application/javascript",
+                Some("png") => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("ico") => "image/x-icon",
+                Some("svg") => "image/svg+xml",
+                _ => "application/octet-stream",
+            };
+            HttpResponse::Ok()
+                .content_type(mime_type)
+                .body(content)
+        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to read static file: {}", e)),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Build server starting on http://localhost:3001");
@@ -213,6 +264,7 @@ async fn main() -> std::io::Result<()> {
             .route("/sync", web::post().to(sync_files))
             .route("/compile", web::put().to(compile))
             .service(get_output)
+            .route("/{filename:.*}", web::get().to(serve_static))
     })
     .bind("127.0.0.1:3001")?
     .run()

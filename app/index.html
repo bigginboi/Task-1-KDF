@@ -4,33 +4,66 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Remote Build Utility</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
+  <div class="glass-bg"></div>
+  
   <div id="app">
-    <h1>Remote Build Utility</h1>
-
-    <fieldset>
-      <legend>Source Folder</legend>
-      <div class="folder-row">
-        <input type="text" id="folder-path" readonly placeholder="No folder selected" />
-        <button id="btn-browse">Browse...</button>
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="logo-dot"></span>
+        <h1>Remote Build Utility</h1>
       </div>
-    </fieldset>
+      <span class="platform-badge" id="platform-badge">Detecting...</span>
+    </header>
 
-    <div class="actions">
-      <button id="btn-compile" disabled>Sync &amp; Compile</button>
-    </div>
+    <main class="app-content">
+      <!-- Folder selection card -->
+      <section class="card border-glow">
+        <h2 class="card-title">Source Workspace</h2>
+        <div class="folder-row">
+          <div class="input-wrapper">
+            <span class="folder-icon">📂</span>
+            <input type="text" id="folder-path" readonly placeholder="Select or drag a folder to compile..." />
+          </div>
+          <button id="btn-browse" class="btn btn-secondary">Browse...</button>
+          <!-- Web-only hidden folder input -->
+          <input type="file" id="browser-folder" webkitdirectory directory multiple style="display: none;" />
+        </div>
+      </section>
 
-    <fieldset>
-      <legend>Status</legend>
-      <div id="status" class="status-ready">Ready</div>
-    </fieldset>
+      <!-- Action panel -->
+      <div class="actions-panel">
+        <button id="btn-compile" class="btn btn-primary" disabled>
+          <span class="btn-text">Sync &amp; Compile</span>
+          <span class="btn-glow"></span>
+        </button>
+      </div>
 
-    <fieldset>
-      <legend>Output</legend>
-      <textarea id="output" readonly rows="18"></textarea>
-    </fieldset>
+      <!-- Status indicator -->
+      <section class="card">
+        <h2 class="card-title">Status</h2>
+        <div id="status" class="status-badge status-ready">Ready</div>
+      </section>
+
+      <!-- Output logs -->
+      <section class="card terminal-card">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <span class="terminal-title">Build Logs</span>
+          <button id="btn-clear" class="btn-clear-logs">Clear</button>
+        </div>
+        <textarea id="output" readonly placeholder="Output logs will appear here during compilation..."></textarea>
+      </section>
+    </main>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
