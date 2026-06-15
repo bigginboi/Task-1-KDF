@@ -6,62 +6,71 @@
   <title>Remote Build Utility</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <div class="glass-bg"></div>
-  
   <div id="app">
+    <!-- Navbar mimicking Anthropic navigation bar -->
     <header class="app-header">
       <div class="header-logo">
-        <span class="logo-dot"></span>
-        <h1>Remote Build Utility</h1>
+        <h1>REMOTE BUILD UTILITY</h1>
       </div>
-      <span class="platform-badge" id="platform-badge">Detecting...</span>
+      <nav class="header-nav">
+        <a href="#" class="nav-link">Research</a>
+        <a href="#" class="nav-link">Infrastructure</a>
+        <a href="#" class="nav-link">Docs</a>
+        <span class="platform-badge" id="platform-badge">Detecting...</span>
+      </nav>
     </header>
 
+    <!-- Main Content Area -->
     <main class="app-content">
-      <!-- Folder selection card -->
-      <section class="card border-glow">
-        <h2 class="card-title">Source Workspace</h2>
+      <!-- Intro Section mimicking the screenshot layout -->
+      <section class="intro-section">
+        <div class="intro-left">
+          <h2 class="hero-title">
+            Remote <span class="underlined">builds</span> and <span class="underlined">compilation</span> that run locally.
+          </h2>
+        </div>
+        <div class="intro-right">
+          <p class="hero-desc">
+            Build server will have a vast impact on local development. Remote Build Utility is a local development utility dedicated to securing compiler environments and returning optimized output artifacts.
+          </p>
+        </div>
+      </section>
+
+      <!-- Workspace Input Card -->
+      <section class="card workspace-card">
+        <h3 class="card-title">Source Workspace</h3>
         <div class="folder-row">
           <div class="input-wrapper">
-            <span class="folder-icon">📂</span>
-            <input type="text" id="folder-path" readonly placeholder="Select or drag a folder to compile..." />
+            <input type="text" id="folder-path" readonly placeholder="No workspace folder selected" />
           </div>
-          <button id="btn-browse" class="btn btn-secondary">Browse...</button>
+          <button id="btn-browse" class="btn btn-secondary">Select Folder</button>
           <!-- Web-only hidden folder input -->
           <input type="file" id="browser-folder" webkitdirectory directory multiple style="display: none;" />
         </div>
       </section>
 
-      <!-- Action panel -->
-      <div class="actions-panel">
+      <!-- Actions & Status Row -->
+      <section class="controls-row">
         <button id="btn-compile" class="btn btn-primary" disabled>
-          <span class="btn-text">Sync &amp; Compile</span>
-          <span class="btn-glow"></span>
+          Sync &amp; Compile Workspace
         </button>
-      </div>
-
-      <!-- Status indicator -->
-      <section class="card">
-        <h2 class="card-title">Status</h2>
-        <div id="status" class="status-badge status-ready">Ready</div>
+        <div class="status-container">
+          <span class="status-label">Status:</span>
+          <span id="status" class="status-badge status-ready">Ready</span>
+        </div>
       </section>
 
-      <!-- Output logs -->
-      <section class="card terminal-card">
+      <!-- Log Terminal Box -->
+      <section class="terminal-card">
         <div class="terminal-header">
-          <div class="terminal-dots">
-            <span class="dot red"></span>
-            <span class="dot yellow"></span>
-            <span class="dot green"></span>
-          </div>
-          <span class="terminal-title">Build Logs</span>
-          <button id="btn-clear" class="btn-clear-logs">Clear</button>
+          <span class="terminal-title">Compilation Diagnostics &amp; Output Logs</span>
+          <button id="btn-clear" class="btn-clear-logs">Clear Output</button>
         </div>
-        <textarea id="output" readonly placeholder="Output logs will appear here during compilation..."></textarea>
+        <textarea id="output" readonly placeholder="Compilation stdout, stderr, and container status will appear here..."></textarea>
       </section>
     </main>
   </div>
