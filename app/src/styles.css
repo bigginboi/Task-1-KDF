@@ -1,0 +1,119 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Arial, Tahoma, Verdana, sans-serif;
+  font-size: 14px;
+  background: #ffffff;
+  color: #1a1a1a;
+  padding: 16px;
+}
+
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #d0d0d0;
+}
+
+fieldset {
+  border: 1px solid #c0c0c0;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+legend {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+.folder-row {
+  display: flex;
+  gap: 8px;
+}
+
+.folder-row input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #b0b0b0;
+  background: #f8f8f8;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+button {
+  padding: 6px 16px;
+  border: 1px solid #a0a0a0;
+  background: #f0f0f0;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #e4e4e4;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+button:disabled:hover {
+  background: #f0f0f0;
+}
+
+.actions {
+  margin-bottom: 12px;
+}
+
+#status {
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #d0d0d0;
+  background: #fafafa;
+}
+
+.status-ready {
+  color: #333;
+}
+
+.status-working {
+  color: #6b5900;
+  background: #fffde6 !important;
+  border-color: #e0d880 !important;
+}
+
+.status-success {
+  color: #1a5c1a;
+  background: #edf7ed !important;
+  border-color: #a0d0a0 !important;
+}
+
+.status-error {
+  color: #8b1a1a;
+  background: #fdeaea !important;
+  border-color: #e0a0a0 !important;
+}
+
+#output {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #b0b0b0;
+  background: #1a1a1a;
+  color: #d4d4d4;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  resize: vertical;
+  white-space: pre;
+}

@@ -1,0 +1,23 @@
+# Rust
+**/target/
+**/*.rs.bk
+
+# Node
+app/node_modules/
+app/dist/
+
+# Build artifacts
+server/workspace/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+app/src-tauri/gen/
+app/gen-icons.ps1
+
+# Test files
+test-payload.json
+test-api.ps1
+test-project/

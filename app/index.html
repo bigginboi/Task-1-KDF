@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Remote Build Utility</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <h1>Remote Build Utility</h1>
+
+    <fieldset>
+      <legend>Source Folder</legend>
+      <div class="folder-row">
+        <input type="text" id="folder-path" readonly placeholder="No folder selected" />
+        <button id="btn-browse">Browse...</button>
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button id="btn-compile" disabled>Sync &amp; Compile</button>
+    </div>
+
+    <fieldset>
+      <legend>Status</legend>
+      <div id="status" class="status-ready">Ready</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Output</legend>
+      <textarea id="output" readonly rows="18"></textarea>
+    </fieldset>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
