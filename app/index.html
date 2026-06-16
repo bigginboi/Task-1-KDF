@@ -4,75 +4,42 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Remote Build Utility</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
   <div id="app">
-    <!-- Navbar mimicking Anthropic navigation bar -->
-    <header class="app-header">
-      <div class="header-logo">
-        <h1>REMOTE BUILD UTILITY</h1>
+    <div class="toolbar">
+      <span class="app-name">remote-build-utility</span>
+      <span class="separator">|</span>
+      <span class="platform-tag" id="platform-badge">detecting</span>
+    </div>
+
+    <div class="section">
+      <label class="label" for="folder-path">Workspace</label>
+      <div class="input-row">
+        <input type="text" id="folder-path" readonly placeholder="No folder selected" />
+        <button id="btn-browse">Browse</button>
+        <input type="file" id="browser-folder" webkitdirectory directory multiple hidden />
       </div>
-      <nav class="header-nav">
-        <a href="#" class="nav-link">Research</a>
-        <a href="#" class="nav-link">Infrastructure</a>
-        <a href="#" class="nav-link">Docs</a>
-        <span class="platform-badge" id="platform-badge">Detecting...</span>
-      </nav>
-    </header>
+    </div>
 
-    <!-- Main Content Area -->
-    <main class="app-content">
-      <!-- Intro Section mimicking the screenshot layout -->
-      <section class="intro-section">
-        <div class="intro-left">
-          <h2 class="hero-title">
-            Remote <span class="underlined">builds</span> and <span class="underlined">compilation</span> that run locally.
-          </h2>
-        </div>
-        <div class="intro-right">
-          <p class="hero-desc">
-            Build server will have a vast impact on local development. Remote Build Utility is a local development utility dedicated to securing compiler environments and returning optimized output artifacts.
-          </p>
-        </div>
-      </section>
+    <div class="section">
+      <div class="action-row">
+        <button id="btn-compile" class="primary" disabled>Sync & Compile</button>
+        <span class="status-row">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status">Ready</span>
+        </span>
+      </div>
+    </div>
 
-      <!-- Workspace Input Card -->
-      <section class="card workspace-card">
-        <h3 class="card-title">Source Workspace</h3>
-        <div class="folder-row">
-          <div class="input-wrapper">
-            <input type="text" id="folder-path" readonly placeholder="No workspace folder selected" />
-          </div>
-          <button id="btn-browse" class="btn btn-secondary">Select Folder</button>
-          <!-- Web-only hidden folder input -->
-          <input type="file" id="browser-folder" webkitdirectory directory multiple style="display: none;" />
-        </div>
-      </section>
-
-      <!-- Actions & Status Row -->
-      <section class="controls-row">
-        <button id="btn-compile" class="btn btn-primary" disabled>
-          Sync &amp; Compile Workspace
-        </button>
-        <div class="status-container">
-          <span class="status-label">Status:</span>
-          <span id="status" class="status-badge status-ready">Ready</span>
-        </div>
-      </section>
-
-      <!-- Log Terminal Box -->
-      <section class="terminal-card">
-        <div class="terminal-header">
-          <span class="terminal-title">Compilation Diagnostics &amp; Output Logs</span>
-          <button id="btn-clear" class="btn-clear-logs">Clear Output</button>
-        </div>
-        <textarea id="output" readonly placeholder="Compilation stdout, stderr, and container status will appear here..."></textarea>
-      </section>
-    </main>
+    <div class="section">
+      <div class="log-header">
+        <label class="label">Output</label>
+        <button id="btn-clear" class="link-btn">Clear</button>
+      </div>
+      <textarea id="output" readonly rows="20" placeholder="Build output will appear here"></textarea>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
