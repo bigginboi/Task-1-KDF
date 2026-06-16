@@ -79,12 +79,12 @@ btnBrowse.addEventListener("click", async () => {
           folderPathInput.value = selectedFolder;
           btnCompile.disabled = false;
           outputArea.value = "";
-          setStatus("Ready", "ready");
-          appendLog(`Selected: ${selectedFolder}`);
+          setStatus("idle", "ready");
+          appendLog(`workspace: ${selectedFolder}`);
         }
       } catch (err: any) {
-        setStatus("Error", "error");
-        appendLog(`Error selecting folder: ${err}`);
+        setStatus("error", "error");
+        appendLog(`err: folder select: ${err}`);
       }
     }
   } else {
@@ -98,14 +98,14 @@ browserFolderInput.addEventListener("change", async (event: any) => {
   if (filesList && filesList.length > 0) {
     selectedFiles = [];
     outputArea.value = "";
-    setStatus("Reading...", "working");
+    setStatus("reading", "working");
 
     const firstFilePath = filesList[0].webkitRelativePath;
     const folderName = firstFilePath.split('/')[0] || "selected";
     selectedFolder = folderName;
     folderPathInput.value = folderName;
 
-    appendLog("Reading files:");
+    appendLog("scanning workspace");
 
     for (let i = 0; i < filesList.length; i++) {
       const file = filesList[i];
@@ -124,9 +124,9 @@ browserFolderInput.addEventListener("change", async (event: any) => {
       }
     }
 
-    appendLog(`\n${selectedFiles.length} files loaded.`);
+    appendLog(`\n${selectedFiles.length} file(s)`);
     btnCompile.disabled = false;
-    setStatus("Ready", "ready");
+    setStatus("idle", "ready");
   }
 });
 
@@ -167,7 +167,7 @@ btnCompile.addEventListener("click", async () => {
   if (isTauri) {
     if (!selectedFolder) return;
     outputArea.value = "";
-    setStatus("Syncing...", "working");
+    setStatus("syncing", "working");
 
     try {
       if (tauriInvoke) {
@@ -176,15 +176,15 @@ btnCompile.addEventListener("click", async () => {
         });
 
         if (result.success) {
-          setStatus("Done", "success");
+          setStatus("done", "success");
           appendLog("\n" + result.message);
         } else {
-          setStatus("Failed", "error");
+          setStatus("failed", "error");
           appendLog("\n" + result.message);
         }
       }
     } catch (err: any) {
-      setStatus("Error", "error");
+      setStatus("error", "error");
       appendLog("\n" + (err?.toString() || "Unknown error"));
     } finally {
       btnCompile.disabled = false;
@@ -193,8 +193,8 @@ btnCompile.addEventListener("click", async () => {
   } else {
     if (selectedFiles.length === 0) return;
     outputArea.value = "";
-    setStatus("Syncing...", "working");
-    appendLog("Syncing files to server...");
+    setStatus("syncing", "working");
+    appendLog("POST /sync");
 
     try {
       const syncResp = await fetch("/sync", {
@@ -206,18 +206,18 @@ btnCompile.addEventListener("click", async () => {
       if (!syncResult.success) throw new Error(syncResult.message);
       appendLog(syncResult.message);
 
-      setStatus("Compiling...", "working");
-      appendLog("\nStarting compile container...");
+      setStatus("compiling", "working");
+      appendLog("\nPUT /compile");
       const compileResp = await fetch("/compile", { method: "PUT" });
       const compileResult = await compileResp.json();
 
       if (compileResult.logs) {
         for (const line of compileResult.logs) appendLog(line);
       }
-      if (!compileResult.success) throw new Error("Compilation failed.");
+      if (!compileResult.success) throw new Error("compile: non-zero exit");
 
-      setStatus("Fetching output...", "working");
-      appendLog("\nFetching build artifacts...");
+      setStatus("fetching", "working");
+      appendLog("\nGET /output");
       const outputResp = await fetch("/output");
       const outputResult = await outputResp.json();
 
@@ -229,7 +229,7 @@ btnCompile.addEventListener("click", async () => {
         if (outputResult.errors) {
           for (const err of outputResult.errors) appendLog(`error: ${err}`);
         }
-        throw new Error("No output artifacts.");
+        throw new Error("no artifacts");
       }
 
       if (outputResult.files) {
@@ -240,10 +240,10 @@ btnCompile.addEventListener("click", async () => {
         }
       }
 
-      setStatus("Done", "success");
-      appendLog("\nBuild complete.");
+      setStatus("done", "success");
+      appendLog("\ndone");
     } catch (err: any) {
-      setStatus("Failed", "error");
+      setStatus("failed", "error");
       appendLog(`\nerror: ${err?.message || err?.toString() || "Unknown"}`);
     } finally {
       btnCompile.disabled = false;
