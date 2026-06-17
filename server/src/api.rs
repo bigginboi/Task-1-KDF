@@ -142,7 +142,7 @@ pub async fn sync_handler(
 
     for file in &body.files {
         if !is_path_safe(&file.path) {
-            return HttpResponse::BadRequest().json(ErrorResponse {
+            return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
                 error_code: "FILE_WRITE_FAILED".to_string(),
                 message: format!("Invalid or unsafe file path: {}", file.path),

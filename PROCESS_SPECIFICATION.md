@@ -186,3 +186,70 @@ To prevent directory traversal and host system injection:
 +   body: JSON.stringify({ files })
 + });
 ```
+
+---
+
+## 7. Curl Examples for all endpoints
+
+### POST /api/sync
+```bash
+curl -i -X POST "http://localhost:3001/api/sync?source_type=cpp" \
+  -H "Content-Type: application/json" \
+  -d '{"files": [{"path": "main.cpp", "content": "I2luY2x1ZGUgPGlvc3RyZWFtPgoKaW50IG1haW4oKSB7CiAgICBzdGQ6OmNvdXQgPDwgIkhlbGxvIGZyb20gUmVtb3RlIEJ1aWxkIFV0aWxpdHkhIiA8PCBzdGQ6OmVuZGw7CiAgICByZXR1cm4gMDsKfQ=="}]}'
+```
+
+### PUT /api/compile
+```bash
+curl -i -X PUT "http://localhost:3001/api/compile?workspace_id=<workspace_id>&source_type=cpp"
+```
+
+### GET /api/output
+```bash
+curl -i -X GET "http://localhost:3001/api/output?workspace_id=<workspace_id>" --output output.zip
+```
+
+### DELETE /api/workspace/{workspace_id}
+```bash
+curl -i -X DELETE "http://localhost:3001/api/workspace/<workspace_id>"
+```
+
+---
+
+## 8. Test Case Documentation
+
+### Test Case 1: Valid C++ Compile Flow
+- **Goal**: Verify successful compilation of a C++ main file.
+- **Input**: `POST /api/sync` with `main.cpp` printing `"Hello"`.
+- **Expected Output**: `PUT /api/compile` returns status code `0`. `GET /api/output` returns a zip file containing the binary `main` and `build.log` showing `"Exit code: 0"`.
+
+### Test Case 2: Compilation Timeout
+- **Goal**: Verify timeout enforcement.
+- **Input**: A C++ file containing an infinite compilation loop or intensive compile workload.
+- **Expected Output**: Compilation halts at `300s` and logs a compilation failure message with the timeout exit code.
+
+### Test Case 3: Directory Traversal Block
+- **Goal**: Prevent path boundary crossing.
+- **Input**: `POST /api/sync` with file path `../../etc/passwd` or `..\..\passwd`.
+- **Expected Output**: Returns HTTP `403 Forbidden` with the error code `FILE_WRITE_FAILED`.
+
+### Test Case 4: Payload Limit Enforcement
+- **Goal**: Prevent memory starvation.
+- **Input**: An individual file sync with content exceeding `50MB` or total payload exceeding `100MB`.
+- **Expected Output**: Returns HTTP `507 Insufficient Storage` with `FILE_WRITE_FAILED`.
+
+---
+
+## 9. File Structure Recommendations
+
+To organize projects for Docker-based compilation, follow these recommended file structures:
+- **C/C++ Projects**: Place source files (`.c`, `.cpp`, `.cc`) at the root or within subdirectories. Avoid placing headers inside deep subfolders unless compile flags are manually specified.
+- **Rust Projects**: Ensure `Cargo.toml` is located at the root of the workspace directory with the `src/` folder containing `main.rs` or `lib.rs`.
+
+---
+
+## 10. Implementation Notes for Rust Backend
+
+- **JSON Body parsing limits**: Actix-web's `web::JsonConfig` should configure a maximum capacity of `100MB` to accommodate large base64 sync payloads.
+- **In-Memory ZIP generation**: To prevent writing temporary zip files to the server host disk, stream the zip archive directly from the stdout of the docker container command (`zip -r - .`) into the server's memory buffer and serve it directly to the response body.
+- **Thread Safety**: Wrap the IP-based rate limiter map in a `Mutex` to prevent concurrent modification panic.
+

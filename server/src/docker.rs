@@ -17,7 +17,7 @@ pub fn ensure_running() -> Result<(), String> {
     let _ = Command::new("docker").args(["rm", "-f", CONTAINER]).output();
 
     let start = Command::new("docker")
-        .args(["run", "-d", "--cpus", "2", "--memory", "2g", "--name", CONTAINER, IMAGE, "sleep", "infinity"])
+        .args(["run", "-d", "--cpus", "2", "--memory", "2g", "--network", "none", "--name", CONTAINER, IMAGE, "sleep", "infinity"])
         .output()
         .map_err(|e| format!("cannot start container: {}", e))?;
 
