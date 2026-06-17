@@ -1,206 +1,108 @@
-use base64::Engine;
-use serde::{Deserialize, Serialize};
+use tauri::command;
 use std::fs;
-use std::path::PathBuf;
-use tauri::{AppHandle, Emitter};
+use std::io::{Write, Cursor};
+use std::path::Path;
+use base64::{engine::general_purpose, Engine as _};
 use walkdir::WalkDir;
+use zip::write::SimpleFileOptions;
+use zip::{ZipWriter, ZipArchive};
 
-const BACKEND_URL: &str = "http://localhost:3001";
+#[command]
+fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
+    let mut entries = Vec::new();
+    let reader = fs::read_dir(&path).map_err(|e| format!("read dir: {}", e))?;
 
-#[derive(Serialize, Deserialize)]
+    for item in reader.flatten() {
+        let is_dir = item.metadata().map(|m| m.is_dir()).unwrap_or(false);
+        entries.push(FileEntry {
+            name: item.file_name().to_string_lossy().to_string(),
+            is_dir,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[command]
+fn zip_folder(path: String) -> Result<String, String> {
+    let base = Path::new(&path);
+    if !base.is_dir() {
+        return Err("not a directory".into());
+    }
+
+    let buf: Vec<u8> = Vec::new();
+    let cursor = Cursor::new(buf);
+    let mut zip = ZipWriter::new(cursor);
+    let opts = SimpleFileOptions::default();
+
+    let skip = ["target", "build", ".git", "node_modules", "dist"];
+
+    for entry in WalkDir::new(base).into_iter().filter_map(|e| e.ok()) {
+        let full = entry.path();
+        let rel = match full.strip_prefix(base) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+        if rel_str.is_empty() {
+            continue;
+        }
+        if skip.iter().any(|s| rel_str.starts_with(s)) {
+            continue;
+        }
+
+        if full.is_file() {
+            zip.start_file(&rel_str, opts).map_err(|e| e.to_string())?;
+            let data = fs::read(full).map_err(|e| e.to_string())?;
+            zip.write_all(&data).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let cursor = zip.finish().map_err(|e| e.to_string())?;
+    let bytes = cursor.into_inner();
+    Ok(general_purpose::STANDARD.encode(&bytes))
+}
+
+#[command]
+fn extract_zip(data: String, dest_path: String) -> Result<Vec<String>, String> {
+    let bytes = general_purpose::STANDARD.decode(&data).map_err(|e| e.to_string())?;
+    let cursor = Cursor::new(bytes);
+    let mut archive = ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+    let dest = Path::new(&dest_path);
+    let mut extracted = Vec::new();
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        let name = file.name().to_string();
+        let outpath = dest.join(&name);
+
+        if file.is_dir() {
+            fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut outfile = fs::File::create(&outpath).map_err(|e| e.to_string())?;
+            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            extracted.push(name);
+        }
+    }
+
+    Ok(extracted)
+}
+
+#[derive(serde::Serialize)]
 struct FileEntry {
-    path: String,
-    content: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SyncRequest {
-    files: Vec<FileEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SyncResponse {
-    success: bool,
-    message: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct CompileResponse {
-    success: bool,
-    logs: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct OutputResponse {
-    success: bool,
-    files: Option<Vec<FileEntry>>,
-    errors: Option<Vec<String>>,
-    logs: Option<Vec<String>>,
-}
-
-#[derive(Serialize)]
-struct BuildResult {
-    success: bool,
-    message: String,
-}
-
-fn emit_log(app: &AppHandle, msg: &str) {
-    let _ = app.emit("build-log", msg.to_string());
-}
-
-fn emit_status(app: &AppHandle, msg: &str) {
-    let _ = app.emit("build-status", msg.to_string());
-}
-
-#[tauri::command]
-async fn sync_and_compile(app: AppHandle, folder_path: String) -> Result<BuildResult, String> {
-    let base_path = PathBuf::from(&folder_path);
-    if !base_path.exists() || !base_path.is_dir() {
-        return Err("Selected folder does not exist".into());
-    }
-
-    let client = reqwest::Client::new();
-    let engine = base64::engine::general_purpose::STANDARD;
-
-    // Step 1: Read and sync files
-    emit_status(&app, "Syncing Files...");
-    emit_log(&app, "Reading local files...");
-
-    let mut files: Vec<FileEntry> = Vec::new();
-    for entry in WalkDir::new(&base_path).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            let full_path = entry.path();
-            let rel_path = full_path.strip_prefix(&base_path)
-                .map_err(|e| e.to_string())?
-                .to_string_lossy()
-                .replace('\\', "/");
-
-            match fs::read(full_path) {
-                Ok(bytes) => {
-                    let encoded = engine.encode(&bytes);
-                    files.push(FileEntry { path: rel_path.clone(), content: encoded });
-                    emit_log(&app, &format!("  {}", rel_path));
-                }
-                Err(e) => {
-                    emit_log(&app, &format!("  SKIP {}: {}", rel_path, e));
-                }
-            }
-        }
-    }
-
-    emit_log(&app, &format!("Found {} files", files.len()));
-
-    if files.is_empty() {
-        return Ok(BuildResult {
-            success: false,
-            message: "No files found in selected folder".into(),
-        });
-    }
-
-    // POST /sync
-    emit_log(&app, "\nSyncing to server...");
-    let sync_resp = client
-        .post(format!("{}/sync", BACKEND_URL))
-        .json(&SyncRequest { files })
-        .send()
-        .await
-        .map_err(|e| format!("Sync request failed: {}", e))?;
-
-    let sync_result: SyncResponse = sync_resp.json().await
-        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
-
-    if !sync_result.success {
-        return Ok(BuildResult {
-            success: false,
-            message: format!("Sync failed: {}", sync_result.message),
-        });
-    }
-    emit_log(&app, &format!("Sync: {}", sync_result.message));
-
-    // PUT /compile
-    emit_status(&app, "Starting Compile...");
-    emit_log(&app, "\nStarting compile...");
-
-    let compile_resp = client
-        .put(format!("{}/compile", BACKEND_URL))
-        .send()
-        .await
-        .map_err(|e| format!("Compile request failed: {}", e))?;
-
-    let compile_result: CompileResponse = compile_resp.json().await
-        .map_err(|e| format!("Failed to parse compile response: {}", e))?;
-
-    for log_line in &compile_result.logs {
-        emit_log(&app, log_line);
-    }
-
-    if !compile_result.success {
-        return Ok(BuildResult {
-            success: false,
-            message: "Compilation failed".into(),
-        });
-    }
-
-    // GET /output
-    emit_status(&app, "Retrieving Output...");
-    emit_log(&app, "\nRetrieving build output...");
-
-    let output_resp = client
-        .get(format!("{}/output", BACKEND_URL))
-        .send()
-        .await
-        .map_err(|e| format!("Output request failed: {}", e))?;
-
-    let output_result: OutputResponse = output_resp.json().await
-        .map_err(|e| format!("Failed to parse output response: {}", e))?;
-
-    if let Some(logs) = &output_result.logs {
-        for log_line in logs {
-            emit_log(&app, log_line);
-        }
-    }
-
-    if !output_result.success {
-        if let Some(errors) = &output_result.errors {
-            for err in errors {
-                emit_log(&app, &format!("ERROR: {}", err));
-            }
-        }
-        return Ok(BuildResult {
-            success: false,
-            message: "Build failed — see output for details".into(),
-        });
-    }
-
-    // Save artifacts locally
-    if let Some(output_files) = &output_result.files {
-        let output_dir = base_path.join("build-output");
-        for file in output_files {
-            let file_path = output_dir.join(&file.path);
-            if let Some(parent) = file_path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            }
-            let decoded = engine.decode(&file.content)
-                .map_err(|e| format!("Failed to decode file {}: {}", file.path, e))?;
-            fs::write(&file_path, &decoded)
-                .map_err(|e| format!("Failed to write file {}: {}", file.path, e))?;
-            emit_log(&app, &format!("Saved: build-output/{}", file.path));
-        }
-        emit_log(&app, &format!("\n{} artifact(s) saved to build-output/", output_files.len()));
-    }
-
-    Ok(BuildResult {
-        success: true,
-        message: "Build completed successfully".into(),
-    })
+    name: String,
+    is_dir: bool,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![sync_and_compile])
+        .invoke_handler(tauri::generate_handler![read_dir, zip_folder, extract_zip])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

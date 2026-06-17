@@ -9,6 +9,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Remote Build Utility",
@@ -18,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:3001"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:3001 http://127.0.0.1:3001"
     }
   },
   "bundle": {

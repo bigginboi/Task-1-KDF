@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Build Utility</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Remote Build Utility</h1>
+        </header>
+
+        <main>
+            <section>
+                <h2>Project</h2>
+                <div class="browse-row">
+                    <button id="browseBtn">Browse Folder</button>
+                    <span id="selectedPath">No folder selected</span>
+                </div>
+                <div id="sourceType" class="type-none"></div>
+            </section>
+
+            <section id="fileSection" style="display: none;">
+                <h2>Files</h2>
+                <div id="fileList"></div>
+            </section>
+
+            <section class="compile-section">
+                <button id="compileBtn" disabled>Compile</button>
+            </section>
+
+            <section id="statusSection" style="display: none;">
+                <div id="statusMessage"></div>
+            </section>
+
+            <section id="logSection" style="display: none;">
+                <h2>Output</h2>
+                <pre id="logOutput"></pre>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="index.js"></script>
+</body>
+</html>
