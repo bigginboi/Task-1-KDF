@@ -1,11 +1,10 @@
 use tauri::command;
 use std::fs;
-use std::io::{Write, Cursor};
+use std::io::Cursor;
 use std::path::Path;
 use base64::{engine::general_purpose, Engine as _};
 use walkdir::WalkDir;
-use zip::write::SimpleFileOptions;
-use zip::{ZipWriter, ZipArchive};
+use zip::ZipArchive;
 
 #[command]
 fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
@@ -24,17 +23,13 @@ fn read_dir(path: String) -> Result<Vec<FileEntry>, String> {
 }
 
 #[command]
-fn zip_folder(path: String) -> Result<String, String> {
+fn get_project_files(path: String) -> Result<Vec<ProjectFileEntry>, String> {
     let base = Path::new(&path);
     if !base.is_dir() {
         return Err("not a directory".into());
     }
 
-    let buf: Vec<u8> = Vec::new();
-    let cursor = Cursor::new(buf);
-    let mut zip = ZipWriter::new(cursor);
-    let opts = SimpleFileOptions::default();
-
+    let mut files = Vec::new();
     let skip = ["target", "build", ".git", "node_modules", "dist"];
 
     for entry in WalkDir::new(base).into_iter().filter_map(|e| e.ok()) {
@@ -53,15 +48,16 @@ fn zip_folder(path: String) -> Result<String, String> {
         }
 
         if full.is_file() {
-            zip.start_file(&rel_str, opts).map_err(|e| e.to_string())?;
-            let data = fs::read(full).map_err(|e| e.to_string())?;
-            zip.write_all(&data).map_err(|e| e.to_string())?;
+            let data = fs::read(full).map_err(|e| format!("read file {}: {}", rel_str, e))?;
+            let content = general_purpose::STANDARD.encode(&data);
+            files.push(ProjectFileEntry {
+                path: rel_str,
+                content,
+            });
         }
     }
 
-    let cursor = zip.finish().map_err(|e| e.to_string())?;
-    let bytes = cursor.into_inner();
-    Ok(general_purpose::STANDARD.encode(&bytes))
+    Ok(files)
 }
 
 #[command]
@@ -72,10 +68,13 @@ fn extract_zip(data: String, dest_path: String) -> Result<Vec<String>, String> {
     let dest = Path::new(&dest_path);
     let mut extracted = Vec::new();
 
+    let output_dir = dest.join("build-output");
+    fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let name = file.name().to_string();
-        let outpath = dest.join(&name);
+        let outpath = output_dir.join(&name);
 
         if file.is_dir() {
             fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
@@ -98,11 +97,17 @@ struct FileEntry {
     is_dir: bool,
 }
 
+#[derive(serde::Serialize)]
+struct ProjectFileEntry {
+    path: String,
+    content: String,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![read_dir, zip_folder, extract_zip])
+        .invoke_handler(tauri::generate_handler![read_dir, get_project_files, extract_zip])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

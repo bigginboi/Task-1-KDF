@@ -8,6 +8,7 @@ app/dist/
 
 # Build artifacts
 server/workspace/
+workspace/
 
 # OS
 .DS_Store

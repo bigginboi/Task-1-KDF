@@ -1,6 +1,6 @@
 use std::process::Command;
 
-const CONTAINER: &str = "build-server";
+const CONTAINER: &str = "build-container";
 const IMAGE: &str = "build-container";
 
 pub fn ensure_running() -> Result<(), String> {
@@ -17,7 +17,7 @@ pub fn ensure_running() -> Result<(), String> {
     let _ = Command::new("docker").args(["rm", "-f", CONTAINER]).output();
 
     let start = Command::new("docker")
-        .args(["run", "-d", "--name", CONTAINER, IMAGE])
+        .args(["run", "-d", "--cpus", "2", "--memory", "2g", "--name", CONTAINER, IMAGE, "sleep", "infinity"])
         .output()
         .map_err(|e| format!("cannot start container: {}", e))?;
 
@@ -29,22 +29,16 @@ pub fn ensure_running() -> Result<(), String> {
     Ok(())
 }
 
-pub fn exec_mkdir(uuid: &str) -> Result<(), String> {
-    let out = Command::new("docker")
-        .args(["exec", CONTAINER, "mkdir", "-p", &format!("/var/code/{}", uuid)])
-        .output()
-        .map_err(|e| format!("mkdir: {}", e))?;
+pub fn copy_workspace(uuid: &str) -> Result<(), String> {
+    let local_path = format!("./workspace/{}", uuid);
+    let dest = format!("{}:/var/code/", CONTAINER);
 
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    Ok(())
-}
+    let _ = Command::new("docker")
+        .args(["exec", CONTAINER, "mkdir", "-p", "/var/code"])
+        .output();
 
-pub fn copy_into(local_path: &str, container_path: &str) -> Result<(), String> {
-    let dest = format!("{}:{}", CONTAINER, container_path);
     let out = Command::new("docker")
-        .args(["cp", local_path, &dest])
+        .args(["cp", &local_path, &dest])
         .output()
         .map_err(|e| format!("docker cp: {}", e))?;
 
@@ -54,98 +48,100 @@ pub fn copy_into(local_path: &str, container_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn exec_unzip(uuid: &str) -> Result<String, String> {
-    let zip_path = format!("/tmp/{}.zip", uuid);
-    let dest = format!("/var/code/{}", uuid);
-
-    let out = Command::new("docker")
-        .args(["exec", CONTAINER, "unzip", "-o", &zip_path, "-d", &dest])
-        .output()
-        .map_err(|e| format!("unzip: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-
-    let _ = Command::new("docker")
-        .args(["exec", CONTAINER, "rm", "-f", &zip_path])
-        .output();
-
-    let code = out.status.code();
-    if !out.status.success() && code != Some(1) {
-        return Err(format!("{} {}", stdout, stderr).trim().to_string());
-    }
-    Ok(stdout)
-}
-
 pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
-    let cmd = match source_type {
-        "c" => format!(
-            "cd /var/code/{} && mkdir -p bin && gcc *.c -o bin/output 2>&1",
-            uuid
-        ),
-        "cpp" => format!(
-            "cd /var/code/{} && mkdir -p bin && g++ *.cpp -o bin/output 2>&1",
-            uuid
-        ),
-        "rust" => format!(
-            "cd /var/code/{} && cargo build --release 2>&1 && mkdir -p bin && find target/release -maxdepth 1 -type f ! -name '*.d' -perm /111 -exec cp {{}} bin/ \\;",
-            uuid
-        ),
+    let compile_cmd = match source_type {
+        "c" => "mkdir -p output && ( gcc $(find . -name '*.c' -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
+        "cpp" => "mkdir -p output && ( g++ $(find . \\( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \\) -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
+        "rust" => "mkdir -p output && ( cargo build --release && find target/release -maxdepth 1 -type f -perm /111 -exec cp {} output/main \\; ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
         other => return (false, 1, format!("unknown source type: {}", other)),
     };
 
-    match Command::new("docker").args(["exec", CONTAINER, "sh", "-c", &cmd]).output() {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let combined = if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) };
-            let code = out.status.code().unwrap_or(1);
-            (out.status.success(), code, combined)
+    let out = Command::new("docker")
+        .args([
+            "exec",
+            "-w",
+            &format!("/var/code/{}", uuid),
+            CONTAINER,
+            "timeout",
+            "300s",
+            "bash",
+            "-c",
+            compile_cmd,
+        ])
+        .output();
+
+    match out {
+        Ok(output) => {
+            let status_code = output.status.code().unwrap_or(1);
+            let success = output.status.success();
+
+            let log_out = Command::new("docker")
+                .args([
+                    "exec",
+                    CONTAINER,
+                    "cat",
+                    &format!("/var/code/{}/output/build.log", uuid),
+                ])
+                .output();
+
+            let log_str = match log_out {
+                Ok(log_output) if log_output.status.success() => {
+                    String::from_utf8_lossy(&log_output.stdout).to_string()
+                }
+                _ => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) }
+                }
+            };
+
+            (success, status_code, log_str)
         }
-        Err(e) => (false, 1, format!("docker exec: {}", e)),
+        Err(e) => (false, 1, format!("docker exec failed: {}", e)),
     }
 }
 
 pub fn exec_zip_output(uuid: &str) -> Result<Vec<u8>, String> {
-    let bin_path = format!("/var/code/{}/bin", uuid);
-    let zip_path = format!("/tmp/{}-out.zip", uuid);
+    let out_dir = format!("/var/code/{}/output", uuid);
 
     let check = Command::new("docker")
-        .args(["exec", CONTAINER, "test", "-d", &bin_path])
+        .args(["exec", CONTAINER, "test", "-d", &out_dir])
         .output()
-        .map_err(|e| format!("check bin dir: {}", e))?;
+        .map_err(|e| format!("check output dir: {}", e))?;
 
     if !check.status.success() {
-        return Err("no output directory found".to_string());
+        return Err("WORKSPACE_NOT_FOUND".to_string());
     }
 
     let zip_out = Command::new("docker")
-        .args(["exec", "-w", &bin_path, CONTAINER, "zip", "-r", &zip_path, "."])
+        .args([
+            "exec",
+            "-w",
+            &out_dir,
+            CONTAINER,
+            "zip",
+            "-r",
+            "-",
+            ".",
+        ])
         .output()
-        .map_err(|e| format!("zip: {}", e))?;
+        .map_err(|e| format!("zip output: {}", e))?;
 
     if !zip_out.status.success() {
         return Err(String::from_utf8_lossy(&zip_out.stderr).to_string());
     }
 
-    let temp = std::env::temp_dir().join(format!("{}-out.zip", uuid));
-    let temp_str = temp.to_string_lossy().to_string();
+    Ok(zip_out.stdout)
+}
 
-    let cp = Command::new("docker")
-        .args(["cp", &format!("{}:{}", CONTAINER, zip_path), &temp_str])
+pub fn exec_cleanup(uuid: &str) -> Result<(), String> {
+    let out = Command::new("docker")
+        .args(["exec", CONTAINER, "rm", "-rf", &format!("/var/code/{}", uuid)])
         .output()
-        .map_err(|e| format!("docker cp out: {}", e))?;
+        .map_err(|e| format!("docker rm: {}", e))?;
 
-    if !cp.status.success() {
-        return Err(String::from_utf8_lossy(&cp.stderr).to_string());
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
-
-    let bytes = std::fs::read(&temp).map_err(|e| format!("read zip: {}", e))?;
-
-    let _ = std::fs::remove_file(&temp);
-    let _ = Command::new("docker")
-        .args(["exec", CONTAINER, "rm", "-f", &zip_path])
-        .output();
-
-    Ok(bytes)
+    Ok(())
 }

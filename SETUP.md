@@ -11,15 +11,17 @@ Ensure you have the following installed on your machine:
 
 ---
 
-## 1. Build the Docker Image
+## 1. Build and Run the Docker Container
 
-Build the compilation container image from the `docker/` directory:
+1. Build the compilation container image:
+   ```bash
+   docker build -t build-container docker/
+   ```
 
-```bash
-docker build -t build-container docker/
-```
-
-This sets up a standard GCC build environment with our auto-detection compile script.
+2. Start the container in daemon mode as `build-container`:
+   ```bash
+   docker run -d --name build-container --cpus 2 --memory 2g build-container sleep infinity
+   ```
 
 ---
 
@@ -34,7 +36,7 @@ This sets up a standard GCC build environment with our auto-detection compile sc
    cargo run --release
    ```
 
-The server starts listening on `http://127.0.0.1:3001`.
+The server starts listening on `http://127.0.0.1:3001` and handles automatic container connection and workspace creation.
 
 ---
 
@@ -62,6 +64,6 @@ npm run tauri build
 
 ## 4. How to Use
 
-1. Click **Browse Folder** and select any local directory containing your C/C++ source code (must contain either a `Makefile` or `.cpp`/`.c` files).
+1. Click **Browse Folder** and select any local directory containing your C, C++, or Rust source code (must contain either a `Cargo.toml`, `.cpp`, or `.c` files).
 2. Click **Compile**.
-3. View real-time output in the logs panel. On successful build, the compiled binaries will be saved under the local project's `build/` directory.
+3. View real-time output in the logs panel. On a successful build, the compiled binaries will be automatically saved under the local project's `build-output/` directory.

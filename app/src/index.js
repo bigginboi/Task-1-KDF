@@ -70,33 +70,28 @@ async function compile() {
     logOutput.textContent = '';
 
     try {
-        // zip the folder
-        setStatus('Zipping folder...', 'info');
-        log('Creating zip archive...');
-        const zipBase64 = await invoke('zip_folder', { path: selectedPath });
-        const zipSize = Math.round(atob(zipBase64).length / 1024);
-        log('Zip created (' + zipSize + ' KB)');
+        setStatus('Scanning folder...', 'info');
+        log('Reading project files...');
+        const files = await invoke('get_project_files', { path: selectedPath });
+        log('Found ' + files.length + ' file(s)');
 
-        // POST /api/sync
-        setStatus('Uploading...', 'info');
-        log('Uploading to server...');
-        const zipBytes = base64ToBytes(zipBase64);
+        setStatus('Syncing files...', 'info');
+        log('Uploading files to server...');
 
         const syncResp = await fetch(API + '/sync?source_type=' + sourceType, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
-            body: zipBytes,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files }),
         });
         const syncData = await syncResp.json();
 
-        if (!syncData.success) {
-            throw new Error(syncData.error || 'Upload failed');
+        if (!syncResp.ok) {
+            throw new Error(syncData.message || syncData.error_code || 'Upload failed');
         }
 
         const workspaceId = syncData.workspace_id;
-        log('Uploaded. Workspace: ' + workspaceId);
+        log('Workspace synchronized. ID: ' + workspaceId);
 
-        // PUT /api/compile
         setStatus('Compiling (' + sourceType.toUpperCase() + ')...', 'info');
         log('\nStarting compilation...\n');
 
@@ -106,11 +101,14 @@ async function compile() {
         );
         const compileData = await compileResp.json();
 
+        if (!compileResp.ok) {
+            throw new Error(compileData.message || compileData.error_code || 'Compilation execution failed');
+        }
+
         if (compileData.output) {
             log(compileData.output);
         }
 
-        // GET /api/output (always called per spec)
         setStatus('Retrieving files...', 'info');
         log('\nRetrieving build output...');
 
@@ -123,19 +121,19 @@ async function compile() {
                 if (ct.includes('octet-stream')) {
                     const buffer = await outputResp.arrayBuffer();
                     const outputB64 = bytesToBase64(new Uint8Array(buffer));
-                    const files = await invoke('extract_zip', {
+                    const filesExtracted = await invoke('extract_zip', {
                         data: outputB64,
                         destPath: selectedPath
                     });
-                    log('Extracted ' + files.length + ' file(s) to project folder');
+                    log('Saved build artifacts to build-output/ (' + filesExtracted.length + ' files)');
                 } else {
                     const errBody = await outputResp.json();
-                    log('No output files: ' + (errBody.error || 'unknown'));
+                    log('No output files: ' + (errBody.message || errBody.error_code || 'unknown'));
                 }
             } else {
                 try {
                     const errBody = await outputResp.json();
-                    log('No output files: ' + (errBody.error || outputResp.statusText));
+                    log('No output files: ' + (errBody.message || errBody.error_code || outputResp.statusText));
                 } catch (_) {
                     log('No output files available');
                 }
@@ -144,7 +142,6 @@ async function compile() {
             log('Warning: ' + getErr.message);
         }
 
-        // final result
         if (compileData.success) {
             setStatus('Build complete', 'success');
             log('\nBuild completed successfully');
@@ -171,13 +168,6 @@ function setStatus(msg, type) {
 function log(text) {
     logOutput.textContent += text + '\n';
     logOutput.scrollTop = logOutput.scrollHeight;
-}
-
-function base64ToBytes(b64) {
-    const bin = atob(b64);
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return arr;
 }
 
 function bytesToBase64(bytes) {
