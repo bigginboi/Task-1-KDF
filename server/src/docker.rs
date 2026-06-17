@@ -45,14 +45,46 @@ pub fn copy_workspace(uuid: &str) -> Result<(), String> {
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).to_string());
     }
+
+    // Run chown as root to grant write access to builder
+    let chown_out = Command::new("docker")
+        .args(["exec", "-u", "root", CONTAINER, "chown", "-R", "builder:builder", &format!("/var/code/{}", uuid)])
+        .output()
+        .map_err(|e| format!("chown failed: {}", e))?;
+
+    if !chown_out.status.success() {
+        return Err(String::from_utf8_lossy(&chown_out.stderr).to_string());
+    }
+
     Ok(())
+}
+
+fn extract_exit_code(output: &str) -> i32 {
+    if let Some(start) = output.find("===EXIT_CODE:") {
+        let start = start + "===EXIT_CODE:".len();
+        if let Some(end) = output[start..].find("===") {
+            if let Ok(code) = output[start..start + end].parse::<i32>() {
+                return code;
+            }
+        }
+    }
+    
+    // Fallback: check if we have actual output that suggests failure
+    let lower = output.to_lowercase();
+    if lower.contains("error") 
+        || lower.contains("undefined reference") 
+        || lower.contains("failed") {
+        return 1;
+    }
+    
+    0
 }
 
 pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
     let compile_cmd = match source_type {
-        "c" => "mkdir -p output && ( gcc $(find . -name '*.c' -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
-        "cpp" => "mkdir -p output && ( g++ $(find . \\( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \\) -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
-        "rust" => "mkdir -p output && ( cargo build --release && find target/release -maxdepth 1 -type f -perm /111 -exec cp {} output/main \\; ) > output/build.log 2>&1; STATUS=$?; echo \"Exit code: $STATUS\" >> output/build.log; exit $STATUS",
+        "c" => "mkdir -p output && ( gcc $(find . -name '*.c' -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"===EXIT_CODE:${STATUS}===\" >> output/build.log; exit $STATUS",
+        "cpp" => "mkdir -p output && ( g++ $(find . \\( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \\) -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"===EXIT_CODE:${STATUS}===\" >> output/build.log; exit $STATUS",
+        "rust" => "mkdir -p output && ( cargo build --release && find target/release -maxdepth 1 -type f -perm /111 -exec cp {} output/main \\; ) > output/build.log 2>&1; STATUS=$?; echo \"===EXIT_CODE:${STATUS}===\" >> output/build.log; exit $STATUS",
         other => return (false, 1, format!("unknown source type: {}", other)),
     };
 
@@ -72,9 +104,6 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
 
     match out {
         Ok(output) => {
-            let status_code = output.status.code().unwrap_or(1);
-            let success = output.status.success();
-
             let log_out = Command::new("docker")
                 .args([
                     "exec",
@@ -94,6 +123,9 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
                     if stderr.is_empty() { stdout } else { format!("{}\n{}", stdout, stderr) }
                 }
             };
+
+            let status_code = extract_exit_code(&log_str);
+            let success = status_code == 0;
 
             (success, status_code, log_str)
         }

@@ -1,7 +1,13 @@
 const { invoke } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 
-const API = 'http://127.0.0.1:3001/api';
+const getApiBase = () => {
+    if (typeof window !== 'undefined' && window.__API_URL__) {
+        return window.__API_URL__;
+    }
+    return 'http://127.0.0.1:3001/api';
+};
+const API = getApiBase();
 
 let selectedPath = null;
 let sourceType = null;
@@ -125,7 +131,7 @@ async function compile() {
                         data: outputB64,
                         destPath: selectedPath
                     });
-                    log('Saved build artifacts to build-output/ (' + filesExtracted.length + ' files)');
+                    log('Saved build artifacts to build/ (' + filesExtracted.length + ' files)');
                 } else {
                     const errBody = await outputResp.json();
                     log('No output files: ' + (errBody.message || errBody.error_code || 'unknown'));

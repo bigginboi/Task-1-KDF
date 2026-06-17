@@ -30,7 +30,7 @@ fn get_project_files(path: String) -> Result<Vec<ProjectFileEntry>, String> {
     }
 
     let mut files = Vec::new();
-    let skip = ["target", "build", ".git", "node_modules", "dist"];
+    let skip = ["target", "build", ".git", "node_modules", "dist", "__pycache__"];
 
     for entry in WalkDir::new(base).into_iter().filter_map(|e| e.ok()) {
         let full = entry.path();
@@ -38,22 +38,39 @@ fn get_project_files(path: String) -> Result<Vec<ProjectFileEntry>, String> {
             Ok(r) => r,
             Err(_) => continue,
         };
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
 
-        if rel_str.is_empty() {
+        let has_skipped_component = rel.components().any(|c| {
+            let s = c.as_os_str().to_string_lossy();
+            s.starts_with('.') || skip.contains(&s.as_ref())
+        });
+        if has_skipped_component {
             continue;
         }
-        if skip.iter().any(|s| rel_str.starts_with(s)) {
+
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if rel_str.is_empty() {
             continue;
         }
 
         if full.is_file() {
-            let data = fs::read(full).map_err(|e| format!("read file {}: {}", rel_str, e))?;
-            let content = general_purpose::STANDARD.encode(&data);
-            files.push(ProjectFileEntry {
-                path: rel_str,
-                content,
-            });
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.file_type().is_symlink() {
+                    continue;
+                }
+            }
+
+            match fs::read(full) {
+                Ok(data) => {
+                    let content = general_purpose::STANDARD.encode(&data);
+                    files.push(ProjectFileEntry {
+                        path: rel_str,
+                        content,
+                    });
+                }
+                Err(e) => {
+                    eprintln!("Failed to read file {}: {}", rel_str, e);
+                }
+            }
         }
     }
 
@@ -68,7 +85,7 @@ fn extract_zip(data: String, dest_path: String) -> Result<Vec<String>, String> {
     let dest = Path::new(&dest_path);
     let mut extracted = Vec::new();
 
-    let output_dir = dest.join("build-output");
+    let output_dir = dest.join("build");
     fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
 
     for i in 0..archive.len() {

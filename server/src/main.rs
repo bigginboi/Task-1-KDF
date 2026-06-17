@@ -2,10 +2,14 @@ mod api;
 mod docker;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpServer, middleware};
+use actix_web::{web, App, HttpServer, middleware, HttpResponse};
 use std::time::Duration;
 use std::fs;
 use std::path::Path;
+
+async fn health_handler() -> HttpResponse {
+    HttpResponse::Ok().body("OK")
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -14,10 +18,12 @@ async fn main() -> std::io::Result<()> {
     let _ = fs::create_dir_all("./workspace");
 
     match docker::ensure_running() {
-        Ok(()) => println!("Container 'build-container' is running"),
+        Ok(()) => println!("✓ Docker container 'build-container' is running"),
         Err(e) => {
-            eprintln!("Cannot start build container: {}", e);
-            eprintln!("Make sure Docker Desktop is running and 'build-container' image exists");
+            eprintln!("✗ ERROR: Failed to check or start Docker container: {}", e);
+            eprintln!("Make sure Docker is running and accessible");
+            eprintln!("Start it with:");
+            eprintln!("  docker run -d --name build-container --cpus 2 --memory 2g --network none build-container sleep infinity");
             std::process::exit(1);
         }
     }
@@ -73,6 +79,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::PayloadConfig::new(100 * 1024 * 1024))
             .wrap(Cors::permissive())
             .wrap(middleware::Logger::default())
+            .route("/health", web::get().to(health_handler))
             .service(
                 web::scope("/api")
                     .route("/sync", web::post().to(api::sync_handler))

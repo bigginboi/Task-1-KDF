@@ -104,7 +104,7 @@ pub fn verify_rate_limit(req: &actix_web::HttpRequest, limiter: &RateLimiter) ->
     if !limiter.check_rate_limit(ip) {
         Err(HttpResponse::build(actix_web::http::StatusCode::TOO_MANY_REQUESTS).json(ErrorResponse {
             success: false,
-            error_code: "FILE_WRITE_FAILED".to_string(),
+            error_code: "RATE_LIMIT_EXCEEDED".to_string(),
             message: "Rate limit exceeded. Max 10 requests per minute.".to_string(),
         }))
     } else {
@@ -144,7 +144,7 @@ pub async fn sync_handler(
         if !is_path_safe(&file.path) {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
-                error_code: "FILE_WRITE_FAILED".to_string(),
+                error_code: "INVALID_PATH".to_string(),
                 message: format!("Invalid or unsafe file path: {}", file.path),
             });
         }
@@ -153,7 +153,7 @@ pub async fn sync_handler(
         if decoded_len > 50 * 1024 * 1024 {
             return HttpResponse::build(actix_web::http::StatusCode::INSUFFICIENT_STORAGE).json(ErrorResponse {
                 success: false,
-                error_code: "FILE_WRITE_FAILED".to_string(),
+                error_code: "PAYLOAD_TOO_LARGE".to_string(),
                 message: format!("File exceeds 50MB limit: {}", file.path),
             });
         }
