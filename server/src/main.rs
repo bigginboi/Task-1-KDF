@@ -68,16 +68,29 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    println!("Listening on http://127.0.0.1:3001");
+    let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port_str = std::env::var("SERVER_PORT").unwrap_or_else(|_| "3001".to_string());
+    let port: u16 = port_str.parse().unwrap_or(3001);
+    let bind_addr = format!("{}:{}", host, port);
+
+    println!("Listening on http://{}", bind_addr);
 
     let rate_limiter = web::Data::new(api::RateLimiter::new());
 
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:1420")
+            .allowed_origin("tauri://localhost")
+            .allowed_origin("http://tauri.localhost")
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
+            .allow_any_header()
+            .max_age(3600);
+
         App::new()
             .app_data(rate_limiter.clone())
             .app_data(web::JsonConfig::default().limit(100 * 1024 * 1024))
             .app_data(web::PayloadConfig::new(100 * 1024 * 1024))
-            .wrap(Cors::permissive())
+            .wrap(cors)
             .wrap(middleware::Logger::default())
             .route("/health", web::get().to(health_handler))
             .service(
@@ -88,7 +101,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/workspace/{workspace_id}", web::delete().to(api::delete_workspace_handler))
             )
     })
-    .bind("127.0.0.1:3001")?
+    .bind(&bind_addr)?
     .run()
     .await
 }

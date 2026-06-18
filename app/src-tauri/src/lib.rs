@@ -91,6 +91,18 @@ fn extract_zip(data: String, dest_path: String) -> Result<Vec<String>, String> {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let name = file.name().to_string();
+        
+        // Zip Slip validation: reject absolute paths, parent dir elements, backslashes, or empty paths
+        let path_name = Path::new(&name);
+        if path_name.is_absolute()
+            || path_name.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir))
+            || name.contains("..")
+            || name.contains('\\')
+            || name.is_empty()
+        {
+            return Err(format!("Zip Slip validation failed: unsafe path in zip entry '{}'", name));
+        }
+
         let outpath = output_dir.join(&name);
 
         if file.is_dir() {

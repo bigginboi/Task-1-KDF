@@ -118,7 +118,14 @@ try {
 # Test 5: Rate limiting
 Write-Host "[5/5] Testing rate limiter..." -NoNewline
 try {
-    $body = @{ files = @() } | ConvertTo-Json
+    $body = @{
+        files = @(
+            @{
+                path = "main.cpp"
+                content = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("#include <iostream>`nint main() { return 0; }"))
+            }
+        )
+    } | ConvertTo-Json -Depth 3
     $rateLimited = $false
     for ($i = 1; $i -le 15; $i++) {
         try {

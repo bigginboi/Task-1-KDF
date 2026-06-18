@@ -1,11 +1,33 @@
 use std::process::Command;
 
-const CONTAINER: &str = "build-container";
-const IMAGE: &str = "build-container";
+fn get_container_name() -> String {
+    std::env::var("DOCKER_CONTAINER").unwrap_or_else(|_| "build-container".to_string())
+}
+
+fn get_image_name() -> String {
+    std::env::var("DOCKER_IMAGE").unwrap_or_else(|_| "build-container".to_string())
+}
+
+fn get_compile_timeout() -> String {
+    std::env::var("COMPILE_TIMEOUT").unwrap_or_else(|_| "300s".to_string())
+}
+
+fn get_docker_cpus() -> String {
+    std::env::var("DOCKER_CPUS").unwrap_or_else(|_| "2".to_string())
+}
+
+fn get_docker_memory() -> String {
+    std::env::var("DOCKER_MEMORY").unwrap_or_else(|_| "2g".to_string())
+}
 
 pub fn ensure_running() -> Result<(), String> {
+    let container = get_container_name();
+    let image = get_image_name();
+    let cpus = get_docker_cpus();
+    let memory = get_docker_memory();
+
     let output = Command::new("docker")
-        .args(["inspect", "-f", "{{.State.Running}}", CONTAINER])
+        .args(["inspect", "-f", "{{.State.Running}}", &container])
         .output()
         .map_err(|e| format!("docker not available: {}", e))?;
 
@@ -14,10 +36,10 @@ pub fn ensure_running() -> Result<(), String> {
         return Ok(());
     }
 
-    let _ = Command::new("docker").args(["rm", "-f", CONTAINER]).output();
+    let _ = Command::new("docker").args(["rm", "-f", &container]).output();
 
     let start = Command::new("docker")
-        .args(["run", "-d", "--cpus", "2", "--memory", "2g", "--network", "none", "--name", CONTAINER, IMAGE, "sleep", "infinity"])
+        .args(["run", "-d", "--cpus", &cpus, "--memory", &memory, "--network", "none", "--name", &container, &image, "sleep", "infinity"])
         .output()
         .map_err(|e| format!("cannot start container: {}", e))?;
 
@@ -30,11 +52,12 @@ pub fn ensure_running() -> Result<(), String> {
 }
 
 pub fn copy_workspace(uuid: &str) -> Result<(), String> {
+    let container = get_container_name();
     let local_path = format!("./workspace/{}", uuid);
-    let dest = format!("{}:/var/code/", CONTAINER);
+    let dest = format!("{}:/var/code/", container);
 
     let _ = Command::new("docker")
-        .args(["exec", CONTAINER, "mkdir", "-p", "/var/code"])
+        .args(["exec", &container, "mkdir", "-p", "/var/code"])
         .output();
 
     let out = Command::new("docker")
@@ -48,7 +71,7 @@ pub fn copy_workspace(uuid: &str) -> Result<(), String> {
 
     // Run chown as root to grant write access to builder
     let chown_out = Command::new("docker")
-        .args(["exec", "-u", "root", CONTAINER, "chown", "-R", "builder:builder", &format!("/var/code/{}", uuid)])
+        .args(["exec", "-u", "root", &container, "chown", "-R", "builder:builder", &format!("/var/code/{}", uuid)])
         .output()
         .map_err(|e| format!("chown failed: {}", e))?;
 
@@ -59,7 +82,7 @@ pub fn copy_workspace(uuid: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn extract_exit_code(output: &str) -> i32 {
+fn extract_exit_code(output: &str, fallback_code: i32) -> i32 {
     if let Some(start) = output.find("===EXIT_CODE:") {
         let start = start + "===EXIT_CODE:".len();
         if let Some(end) = output[start..].find("===") {
@@ -68,19 +91,12 @@ fn extract_exit_code(output: &str) -> i32 {
             }
         }
     }
-    
-    // Fallback: check if we have actual output that suggests failure
-    let lower = output.to_lowercase();
-    if lower.contains("error") 
-        || lower.contains("undefined reference") 
-        || lower.contains("failed") {
-        return 1;
-    }
-    
-    0
+    fallback_code
 }
 
 pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
+    let container = get_container_name();
+    let timeout = get_compile_timeout();
     let compile_cmd = match source_type {
         "c" => "mkdir -p output && ( gcc $(find . -name '*.c' -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"===EXIT_CODE:${STATUS}===\" >> output/build.log; exit $STATUS",
         "cpp" => "mkdir -p output && ( g++ $(find . \\( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \\) -not -path './output/*' -not -path '*/target/*') -o output/main ) > output/build.log 2>&1; STATUS=$?; echo \"===EXIT_CODE:${STATUS}===\" >> output/build.log; exit $STATUS",
@@ -93,9 +109,9 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
             "exec",
             "-w",
             &format!("/var/code/{}", uuid),
-            CONTAINER,
+            &container,
             "timeout",
-            "300s",
+            &timeout,
             "bash",
             "-c",
             compile_cmd,
@@ -104,10 +120,11 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
 
     match out {
         Ok(output) => {
+            let fallback_status_code = output.status.code().unwrap_or(1);
             let log_out = Command::new("docker")
                 .args([
                     "exec",
-                    CONTAINER,
+                    &container,
                     "cat",
                     &format!("/var/code/{}/output/build.log", uuid),
                 ])
@@ -124,7 +141,7 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
                 }
             };
 
-            let status_code = extract_exit_code(&log_str);
+            let status_code = extract_exit_code(&log_str, fallback_status_code);
             let success = status_code == 0;
 
             (success, status_code, log_str)
@@ -134,10 +151,11 @@ pub fn exec_compile(uuid: &str, source_type: &str) -> (bool, i32, String) {
 }
 
 pub fn exec_zip_output(uuid: &str) -> Result<Vec<u8>, String> {
+    let container = get_container_name();
     let out_dir = format!("/var/code/{}/output", uuid);
 
     let check = Command::new("docker")
-        .args(["exec", CONTAINER, "test", "-d", &out_dir])
+        .args(["exec", &container, "test", "-d", &out_dir])
         .output()
         .map_err(|e| format!("check output dir: {}", e))?;
 
@@ -150,7 +168,7 @@ pub fn exec_zip_output(uuid: &str) -> Result<Vec<u8>, String> {
             "exec",
             "-w",
             &out_dir,
-            CONTAINER,
+            &container,
             "zip",
             "-r",
             "-",
@@ -167,8 +185,9 @@ pub fn exec_zip_output(uuid: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn exec_cleanup(uuid: &str) -> Result<(), String> {
+    let container = get_container_name();
     let out = Command::new("docker")
-        .args(["exec", CONTAINER, "rm", "-rf", &format!("/var/code/{}", uuid)])
+        .args(["exec", &container, "rm", "-rf", &format!("/var/code/{}", uuid)])
         .output()
         .map_err(|e| format!("docker rm: {}", e))?;
 

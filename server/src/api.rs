@@ -22,10 +22,19 @@ impl RateLimiter {
     }
 
     pub fn check_rate_limit(&self, ip: String) -> bool {
-        let mut reqs = self.requests.lock().unwrap();
+        let mut reqs = match self.requests.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         let now = Instant::now();
+        
+        // Trim expired requests and remove empty IPs from the map to prevent key leaks
+        reqs.retain(|_, times| {
+            times.retain(|&t| now.duration_since(t) < Duration::from_secs(60));
+            !times.is_empty()
+        });
+
         let times = reqs.entry(ip).or_insert_with(Vec::new);
-        times.retain(|&t| now.duration_since(t) < Duration::from_secs(60));
         if times.len() >= 10 {
             false
         } else {
@@ -88,19 +97,26 @@ fn is_path_safe(path_str: &str) -> bool {
     if path_str.is_empty() {
         return false;
     }
-    if path_str.contains("..") || path_str.starts_with('/') || path_str.starts_with('\\') {
+    // Reject slashes, directory traversal, and backslashes (since client standardizes paths to forward slashes)
+    if path_str.contains("..") || path_str.starts_with('/') || path_str.contains('\\') {
         return false;
     }
     for c in path_str.chars() {
-        if !c.is_alphanumeric() && c != '/' && c != '\\' && c != '.' && c != '_' && c != '-' {
+        if !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-' {
             return false;
         }
     }
     true
 }
 
+fn is_valid_uuid(id: &str) -> bool {
+    Uuid::parse_str(id).is_ok()
+}
+
 pub fn verify_rate_limit(req: &actix_web::HttpRequest, limiter: &RateLimiter) -> Result<(), HttpResponse> {
-    let ip = req.connection_info().realip_remote_addr().unwrap_or("unknown").to_string();
+    let ip = req.peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
     if !limiter.check_rate_limit(ip) {
         Err(HttpResponse::build(actix_web::http::StatusCode::TOO_MANY_REQUESTS).json(ErrorResponse {
             success: false,
@@ -120,6 +136,14 @@ pub async fn sync_handler(
 ) -> HttpResponse {
     if let Err(resp) = verify_rate_limit(&req, &limiter) {
         return resp;
+    }
+
+    if body.files.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error_code: "FILE_WRITE_FAILED".to_string(),
+            message: "At least one file is required".to_string(),
+        });
     }
 
     let source_type = &query.source_type;
@@ -227,7 +251,25 @@ pub async fn compile_handler(
         return resp;
     }
 
-    let workspace_dir = PathBuf::from("./workspace").join(&query.workspace_id);
+    let workspace_id = &query.workspace_id;
+
+    if !is_valid_uuid(workspace_id) {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error_code: "WORKSPACE_NOT_FOUND".to_string(),
+            message: "Workspace not found or expired".to_string(),
+        });
+    }
+
+    if !["c", "cpp", "rust"].contains(&query.source_type.as_str()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error_code: "INVALID_SOURCE_TYPE".to_string(),
+            message: "Source type must be c, cpp, or rust".to_string(),
+        });
+    }
+
+    let workspace_dir = PathBuf::from("./workspace").join(workspace_id);
 
     if !workspace_dir.exists() {
         return HttpResponse::NotFound().json(ErrorResponse {
@@ -245,11 +287,14 @@ pub async fn compile_handler(
         });
     }
 
-    let (success, code, output) = docker::exec_compile(&query.workspace_id, &query.source_type);
+    // Touch the workspace directory to reset the expiration timer
+    let _ = fs::write(workspace_dir.join(".active"), b"");
+
+    let (success, code, output) = docker::exec_compile(workspace_id, &query.source_type);
 
     HttpResponse::Ok().json(CompileResponse {
         success,
-        workspace_id: query.workspace_id.clone(),
+        workspace_id: workspace_id.clone(),
         status_code: code,
         output,
     })
@@ -264,7 +309,17 @@ pub async fn output_handler(
         return resp;
     }
 
-    let workspace_dir = PathBuf::from("./workspace").join(&query.workspace_id);
+    let workspace_id = &query.workspace_id;
+
+    if !is_valid_uuid(workspace_id) {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error_code: "WORKSPACE_NOT_FOUND".to_string(),
+            message: "Workspace not found or expired".to_string(),
+        });
+    }
+
+    let workspace_dir = PathBuf::from("./workspace").join(workspace_id);
 
     if !workspace_dir.exists() {
         return HttpResponse::NotFound().json(ErrorResponse {
@@ -282,7 +337,10 @@ pub async fn output_handler(
         });
     }
 
-    match docker::exec_zip_output(&query.workspace_id) {
+    // Touch the workspace directory to reset the expiration timer
+    let _ = fs::write(workspace_dir.join(".active"), b"");
+
+    match docker::exec_zip_output(workspace_id) {
         Ok(bytes) => {
             HttpResponse::Ok()
                 .content_type("application/octet-stream")
@@ -320,6 +378,15 @@ pub async fn delete_workspace_handler(
     }
 
     let workspace_id = path.into_inner();
+
+    if !is_valid_uuid(&workspace_id) {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error_code: "WORKSPACE_NOT_FOUND".to_string(),
+            message: "Workspace not found or expired".to_string(),
+        });
+    }
+
     let workspace_dir = PathBuf::from("./workspace").join(&workspace_id);
 
     if !workspace_dir.exists() {
@@ -330,8 +397,20 @@ pub async fn delete_workspace_handler(
         });
     }
 
-    let _ = fs::remove_dir_all(&workspace_dir);
-    let _ = docker::exec_cleanup(&workspace_id);
+    let local_res = fs::remove_dir_all(&workspace_dir);
+    let docker_res = docker::exec_cleanup(&workspace_id);
+
+    if local_res.is_err() || docker_res.is_err() {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error_code: "FILE_WRITE_FAILED".to_string(),
+            message: format!(
+                "Failed to clean up workspace resources. Local error: {:?}, Docker error: {:?}",
+                local_res.err(),
+                docker_res.err()
+            ),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
